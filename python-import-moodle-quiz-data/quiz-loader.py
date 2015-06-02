@@ -9,10 +9,20 @@ import csv
 import codecs
 from lxml import etree
 
+from os import listdir
+from os.path import isfile, join
+
+# for encoding pictures
+import base64
+
 def createMap(d):
     # create xml element map from dict
-    # WIJK;POSTCODE4;PLAATS;PLAATSNAAM;CBS;CBSNAAM;PROVINCIE;PROVINCIENAAM;LAND;LANDNAAM;BRUTO;STICKERS;NETTO;AKTIEF
     #type="multichoice"
+    
+    # read pictures from dir if exists
+    picturePath = './pictures'
+    pictureFileList = [ f for f in listdir(picturePath) if isfile(join(picturePath,f)) ]
+
     # top level map element
     mp = etree.Element('question')
     mp.set('type', d['type'])
@@ -21,15 +31,62 @@ def createMap(d):
     pls = etree.SubElement(mp, 'name')
     txt = etree.SubElement(pls, 'text')
     txt.text = d['question']
+
+    # search for picture to add to question if picture name starts with question id
+    qId = d['question'][:3]
+    print qId
+    
+    matchingPictureUri = [p for p in pictureFileList if qId in p]
+    
+    # does this question have a picture?
+    hasPicture = False 
+    
+    if matchingPictureUri :
+        hasPicture = True
+        # set path to picture
+        uriPicture = './pictures/' + matchingPictureUri[0] 
+        # load file and encode in XML base64
+        with open(uriPicture, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read())
+        
     #questiontext
     qxt = etree.SubElement(mp, 'questiontext')
     qxt.set('format',"html")
     txt = etree.SubElement(qxt, 'text')
-#    parser = etree.XMLParser(strip_cdata=False)
-#    txt.text = etree.tostring(etree.fromstring(d['questiontext'] ,parser))
-    txt.text = d['questiontext']
+    # temp doc to store text to be put in CDATA block
+    cdatxt = etree.Element('cdat')
+
+    txtP = etree.SubElement(cdatxt, 'p')
+    txtP.text = d['questiontext']
     
-    #questiontext
+    # add picture if exist for question
+    if hasPicture:
+        # add code to question teext
+        #<img src="@@PLUGINFILE@@/blaadjes-aan-boom.jpg" alt="blaadjes aan beslisboom" width="242" height="217" style="vertical-align:text-bottom; margin: 0 .5em;" class="img-responsive">
+        imgP = etree.SubElement(cdatxt, 'p')
+    
+        img = etree.SubElement(imgP, 'img')
+        img.set('src',"@@PLUGINFILE@@/"+matchingPictureUri[0])
+        img.set('alt',matchingPictureUri[0].split('.')[0])
+        img.set('width',"250")
+        img.set('height',"250")
+        img.set('style',"vertical-align:text-bottom; margin: 0 .5em;")
+        img.set('class',"img-responsive")
+        
+        
+        # add picture
+        qPictElem = etree.SubElement(qxt, 'file')
+        qPictElem.set('name',matchingPictureUri[0])
+        qPictElem.set('path',"/")
+        qPictElem.set('encoding',"base64")
+        qPictElem.text = encoded_string 
+        #<file name="blaadjes-aan-boom.jpg" path="/" encoding="base64">
+    
+    # wrap in CDATA block etree.CDATA(
+    strTxt = etree.tostring(cdatxt)
+    txt.text = etree.CDATA(strTxt)
+    
+    #question defaults
     gfb = etree.SubElement(mp, 'generalfeedback')
     gfb.set('format',"html")
     txt = etree.SubElement(gfb, 'text')
@@ -146,7 +203,7 @@ def createMap(d):
 if __name__ == '__main__':
     # use absolute path for cron job
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-        # set up logging
+    # set up logging
     log_file = os.path.join(ROOT_DIR, 'loader.log')
     FORMAT = "%(asctime)s|%(levelname)s|%(message)s"
     logging.basicConfig(filename = log_file, format=FORMAT, filemode='w', level=logging.INFO)
@@ -166,7 +223,7 @@ if __name__ == '__main__':
         print "Input file not found. exiting\n";
         logging.error('Input file not found, exit ...')   
         sys.exit(2)
-    
+        
     # set up xml document
     logging.info('Start reading questions.')
     # get date
@@ -211,11 +268,11 @@ if __name__ == '__main__':
             
             # create mapping element
             # line = line.decode('cp1252')
-            try:
-                mp = createMap(d)
-            except:
-                 d['questiontext']
-                 logging.error('Failed on line : '+ str(line) )
+#            try:
+            mp = createMap(d)
+#            except:
+#                 d['questiontext']
+#                 logging.error('Failed on line : '+ str(line) )
             # append comment before each question
             qc = etree.Comment(' question : '+ d['question'])
             doc.append(qc)
